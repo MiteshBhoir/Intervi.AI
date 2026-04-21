@@ -1,37 +1,35 @@
 import fs from "fs"
-import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
+import pdf from "pdf-parse";
 import { askAi } from "../services/openRouter.service.js";
 import User from "../models/user.model.js";
 import Interview from "../models/interview.model.js";
 
 export const analyzeResume = async (req, res) => {
+  let filepath;
+
   try {
+    // ❌ No file uploaded
     if (!req.file) {
       return res.status(400).json({ message: "Resume required" });
     }
-    const filepath = req.file.path
 
-    const fileBuffer = await fs.promises.readFile(filepath)
-    const uint8Array = new Uint8Array(fileBuffer)
+    filepath = req.file.path;
 
-    const pdf = await pdfjsLib.getDocument({ data: uint8Array }).promise;
+    // ✅ Read file buffer
+    const fileBuffer = await fs.promises.readFile(filepath);
 
-    let resumeText = "";
+    // ✅ Extract text using pdf-parse (Node-friendly)
+    const data = await pdf(fileBuffer);
+    let resumeText = data.text;
 
-    // Extract text from all pages
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-      const page = await pdf.getPage(pageNum);
-      const content = await page.getTextContent();
+    // ✅ Clean text
+    resumeText = resumeText.replace(/\s+/g, " ").trim();
 
-      const pageText = content.items.map(item => item.str).join(" ");
-      resumeText += pageText + "\n";
+    if (!resumeText) {
+      return res.status(400).json({ message: "Could not extract text from PDF" });
     }
 
-
-    resumeText = resumeText
-      .replace(/\s+/g, " ")
-      .trim();
-
+    // ✅ AI Prompt
     const messages = [
       {
         role: "system",
@@ -54,30 +52,46 @@ Return strictly JSON:
       }
     ];
 
+    // ✅ Call AI
+    const aiResponse = await askAi(messages);
 
-    const aiResponse = await askAi(messages)
+    let parsed;
 
-    const parsed = JSON.parse(aiResponse);
+    // ✅ Safe JSON parse (IMPORTANT)
+    try {
+      parsed = JSON.parse(aiResponse);
+    } catch (err) {
+      console.error("AI RAW RESPONSE:", aiResponse);
+      return res.status(500).json({
+        message: "Invalid AI response format",
+      });
+    }
 
-    fs.unlinkSync(filepath)
+    // ✅ Cleanup file safely
+    if (filepath && fs.existsSync(filepath)) {
+      fs.unlinkSync(filepath);
+    }
 
-
-    res.json({
-      role: parsed.role,
-      experience: parsed.experience,
-      projects: parsed.projects,
-      skills: parsed.skills,
-      resumeText
+    // ✅ Final response
+    return res.json({
+      role: parsed.role || "",
+      experience: parsed.experience || "",
+      projects: parsed.projects || [],
+      skills: parsed.skills || [],
+      resumeText,
     });
 
   } catch (error) {
-    console.error(error);
+    console.error("Analyze Resume Error:", error);
 
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
+    // ✅ Cleanup on error
+    if (filepath && fs.existsSync(filepath)) {
+      fs.unlinkSync(filepath);
     }
 
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      message: error.message || "Server Error",
+    });
   }
 };
 
