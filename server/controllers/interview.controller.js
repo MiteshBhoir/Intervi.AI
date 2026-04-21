@@ -1,53 +1,107 @@
 import fs from "fs"
+import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
+import { askAi } from "../services/openRouter.service.js";
+import User from "../models/user.model.js";
+import Interview from "../models/interview.model.js";
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 
 const pdf = require("pdf-parse");
-import { askAi } from "../services/openRouter.service.js";
-import User from "../models/user.model.js";
-import Interview from "../models/interview.model.js";
+// export const analyzeResume = async (req, res) => {
+//   try {
+//     if (!req.file) {
+//       return res.status(400).json({ message: "Resume required" });
+//     }
+//     const filepath = req.file.path
 
+//     const fileBuffer = await fs.promises.readFile(filepath)
+//     const uint8Array = new Uint8Array(fileBuffer)
+
+//     const pdf = await pdfjsLib.getDocument({ data: uint8Array }).promise;
+
+//     let resumeText = "";
+
+//     // Extract text from all pages
+//     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+//       const page = await pdf.getPage(pageNum);
+//       const content = await page.getTextContent();
+
+//       const pageText = content.items.map(item => item.str).join(" ");
+//       resumeText += pageText + "\n";
+//     }
+
+
+//     resumeText = resumeText
+//       .replace(/\s+/g, " ")
+//       .trim();
+
+//     const messages = [
+//       {
+//         role: "system",
+//         content: `
+// Extract structured data from resume.
+
+// Return strictly JSON:
+
+// {
+//   "role": "string",
+//   "experience": "string",
+//   "projects": ["project1", "project2"],
+//   "skills": ["skill1", "skill2"]
+// }
+// `
+//       },
+//       {
+//         role: "user",
+//         content: resumeText
+//       }
+//     ];
+
+
+//     const aiResponse = await askAi(messages)
+
+//     const parsed = JSON.parse(aiResponse);
+
+//     fs.unlinkSync(filepath)
+
+
+//     res.json({
+//       role: parsed.role,
+//       experience: parsed.experience,
+//       projects: parsed.projects,
+//       skills: parsed.skills,
+//       resumeText
+//     });
+
+//   } catch (error) {
+//     console.error(error);
+
+//     if (req.file && fs.existsSync(req.file.path)) {
+//       fs.unlinkSync(req.file.path);
+//     }
+
+//     return res.status(500).json({ message: error.message });
+//   }
+// };
 export const analyzeResume = async (req, res) => {
-  let filepath;
-
   try {
-    // ❌ No file uploaded
     if (!req.file) {
       return res.status(400).json({ message: "Resume required" });
     }
 
-    filepath = req.file.path;
+    const fileBuffer = req.file.buffer;
 
-    // ✅ Read file buffer
-    const fileBuffer = await fs.promises.readFile(filepath);
-
-    // ✅ Extract text using pdf-parse (Node-friendly)
     const data = await pdf(fileBuffer);
-    let resumeText = data.text;
 
-    // ✅ Clean text
-    resumeText = resumeText.replace(/\s+/g, " ").trim();
+    let resumeText = data.text
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 3000);
 
-    if (!resumeText) {
-      return res.status(400).json({ message: "Could not extract text from PDF" });
-    }
-
-    // ✅ AI Prompt
     const messages = [
       {
         role: "system",
-        content: `
-Extract structured data from resume.
-
-Return strictly JSON:
-
-{
-  "role": "string",
-  "experience": "string",
-  "projects": ["project1", "project2"],
-  "skills": ["skill1", "skill2"]
-}
-`
+        content: `Return ONLY valid JSON`
       },
       {
         role: "user",
@@ -55,49 +109,30 @@ Return strictly JSON:
       }
     ];
 
-    // ✅ Call AI
     const aiResponse = await askAi(messages);
 
     let parsed;
 
-    // ✅ Safe JSON parse (IMPORTANT)
     try {
       parsed = JSON.parse(aiResponse);
     } catch (err) {
-      console.error("AI RAW RESPONSE:", aiResponse);
-      return res.status(500).json({
-        message: "Invalid AI response format",
-      });
+      console.log(aiResponse);
+      return res.status(500).json({ message: "Invalid AI response" });
     }
 
-    // ✅ Cleanup file safely
-    if (filepath && fs.existsSync(filepath)) {
-      fs.unlinkSync(filepath);
-    }
-
-    // ✅ Final response
-    return res.json({
+    res.json({
       role: parsed.role || "",
       experience: parsed.experience || "",
       projects: parsed.projects || [],
       skills: parsed.skills || [],
-      resumeText,
+      resumeText
     });
 
   } catch (error) {
-    console.error("Analyze Resume Error:", error);
-
-    // ✅ Cleanup on error
-    if (filepath && fs.existsSync(filepath)) {
-      fs.unlinkSync(filepath);
-    }
-
-    return res.status(500).json({
-      message: error.message || "Server Error",
-    });
+    console.error(error);
+    res.status(500).json({ message: error.message });
   }
 };
-
 
 export const generateQuestion = async (req, res) => {
   try {
