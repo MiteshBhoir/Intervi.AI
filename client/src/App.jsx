@@ -13,7 +13,7 @@ import InterviewReport from './pages/InterviewReport'
 import Navbar from './components/Navbar'
 
 // export const ServerUrl = "http://localhost:8000"
-export const ServerUrl = "https://intervi-ai-3.onrender.com/" 
+export const ServerUrl = "https://intervi-ai-3.onrender.com" 
 
 function App() {
 
